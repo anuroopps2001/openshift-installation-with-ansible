@@ -1,79 +1,124 @@
---- 
-- name: Bastion node prepation for Openshift installation
+---
+- name: Bastion node preparation for OpenShift installation
   hosts: bastion.lab.example.com
   become: true
   remote_user: core
+
+  vars_files:
+    - ../vars/cluster-vars.yml     # put sensitive values (pull_secret path, etc.) here
+
   tasks:
-    # Creating ssh keys
-    - name: Generate ssh keys on bastion server
-	  ansible.builtin.openssh_keypair:
-	    path: /home/core/.ssh/id_rsa
-		owner: core
-		group: core
-		type: rsa
-		size: 4096
-		state: present
-		
-	- name: Preparing install config yaml
-          ansible.builtin.template: templates/install-config.yaml.j2
-            src: templates/install-config.yaml.j2
-            dest: /home/core/ocp-install/install-config.yaml
-            owner: core
-            group: core
-            mode: '0644'
-          vars:
-            cluster_base_domain: rbi1.rbi.org.in
-            arch: s390x
-            master_replica_count: 3
-            cluster_name: uatapp
-            cluster_pod_network_range: 100.132.0.0/14
-            cluster_service_network_range: 100.137.0.0/16
-            fips_mode: true
-            pull_secret: {"auths":{"cloud.openshift.com":{"auth":"b3jJDSUVXQkNBUzBPVDVETEg4NExEWkE2RTdKT0pGTzE2TE5PUEpPV0ZSVTY2RQ=="},"yyy.org.in:8443":{"auth":"aW5pdDMjM="},"quay.io":{"auth":"b3BlEpPV0ZSVTY2RQ=="},"registry.connect.redhat.com":{"auth":"fHVoWdrUQ=="},"registry.redhat.io":{"auth":"fH3RmSWdrUQ=="}}}
-            ssh_public_key: ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAACAQC0FBYQvgB0pGgfUZaof4LWm2aEMehwdhPmLemVw1EC0grvWqUjQ== core@yyy.org.in
+    - name: Ensure install dir exists
+      ansible.builtin.file:
+        path: /home/core/ocp-install
+        state: directory
+        owner: core
+        group: core
+        mode: '0755'
 
-        - name: Generate manifest files
-          ansible.builtin.command:
-            cmd:  openshift-install-fips create manifests --dir ocpinstall-dec19
-            chdir: /home/core
-         
-        - name: Make masters unschedulable in scheduler manifest
-          ansible.builtin.replace:
-            path: /home/core/ocpinstall-dec19/manifests/cluster-scheduler-02-config.yml
-            regexp: 'mastersSchedulable:\s*true'
-            replace: 'masterSchedulable: false'
+    - name: Generate ssh keypair if missing
+      ansible.builtin.openssh_keypair:
+        path: /home/core/.ssh/id_rsa
+        owner: core
+        group: core
+        type: rsa
+        size: 4096
+        state: present
+      register: keypair_result
 
-        - name: Create the Ignition config files
-          ansible.builtin.command:
-            cmd: openshift-install-fipss create ignition-configs --dir ocpinstall-dec19
-            chdir: /home/core
+    - name: Read generated public key
+      ansible.builtin.slurp:
+        src: /home/core/.ssh/id_rsa.pub
+      register: slurped_pubkey
+      when: keypair_result.changed or keypair_result is not failed
+    - set_fact:
+        ssh_pub_key: "{{ (slurped_pubkey.content | b64decode).strip() }}"
+      when: slurped_pubkey is defined
 
-        - name: Install httpd package
-          ansible.builtin.dnf:
-            name: httpd
-            state: latest
+    - name: Create install-config.yaml from template
+      ansible.builtin.template:
+        src: ../templates/install-config.yaml.j2
+        dest: /home/core/ocp-install/install-config.yaml
+        owner: core
+        group: core
+        mode: '0644'
+      vars:
+        base_domain: "{{ cluster_base_domain | default('rbi1.rbi.org.in') }}"
+        arch: "{{ arch | default('s390x') }}"
+        master_replica_count: "{{ master_replica_count | default(3) }}"
+        cluster_name: "{{ cluster_name | default('uatapp') }}"
+        cluster_pod_network_range: "{{ cluster_pod_network_range | default('100.132.0.0/14') }}"
+        cluster_service_network_range: "{{ cluster_service_network_range | default('100.137.0.0/16') }}"
+        fips_mode: "{{ fips_mode | default(true) }}"
+        pull_secret: "{{ lookup('file', pull_secret_file) if pull_secret_file is defined else (pull_secret | default('')) }}"
+        ssh_pub_key: "{{ ssh_pub_key | default(lookup('file', ssh_pub_key_file)) }}"
+      notify: "install-config created"
 
-        - name: Start and enable httpd service
-          ansible.builtin.service:
-            name: httpd
-            enabled: true
-            state: started
-        
-        - name: make sure firewall is turned off
-          ansible.builtin.service:
-            name: firewalld
-            state: stopped
+    - name: Generate OpenShift manifest files
+      ansible.builtin.command:
+        cmd: openshift-install-fips create manifests --dir ocpinstall-dec19
+        chdir: /home/core
+      args:
+        creates: /home/core/ocpinstall-dec19/manifests
 
-        - name: create ignition files dir at /var/www/html
-          ansible.builtin.file:
-            path: /var/www/html/uatapp
-            state: directory
-            mode: '0777'
-            owner: root
-            group: root
+    - name: Make masters unschedulable in scheduler manifest
+      ansible.builtin.replace:
+        path: /home/core/ocpinstall-dec19/manifests/cluster-scheduler-02-config.yml
+        regexp: 'mastersSchedulable:\s*true'
+        replace: 'mastersSchedulable: false'
 
-        - name: copy ignition files in uatapp dir
-          ansible.builtin.copy:
-            src: /home/core/ocp416/auth/*.ign
-            dest: /var/www/html/uatapp/
-           
+    - name: Create ignition config files
+      ansible.builtin.command:
+        cmd: openshift-install-fips create ignition-configs --dir ocpinstall-dec19
+        chdir: /home/core
+      args:
+        creates: /home/core/ocpinstall-dec19/bootstrap.ign
+
+    - name: Install httpd package
+      ansible.builtin.dnf:
+        name: httpd
+        state: latest
+
+    - name: Ensure httpd is started and enabled
+      ansible.builtin.service:
+        name: httpd
+        state: started
+        enabled: true
+
+    - name: Stop firewalld (if you prefer to disable)
+      ansible.builtin.service:
+        name: firewalld
+        state: stopped
+      when: disable_firewall | default(true)
+
+    - name: Ensure ignition files dir exists for cluster
+      ansible.builtin.file:
+        path: /var/www/html/{{ cluster_name | default('uatapp') }}
+        state: directory
+        owner: root
+        group: root
+        mode: '0755'
+
+    - name: Copy ignition files to webroot (use cp on remote host)
+      ansible.builtin.shell: |
+        cp /home/core/ocpinstall-dec19/*.ign /var/www/html/{{ cluster_name | default('uatapp') }}/
+      args:
+        creates: /var/www/html/{{ cluster_name | default('uatapp') }}/bootstrap.ign
+      notify: restart httpd
+
+    - name: Restore SELinux context for web content (if SELinux enabled)
+      ansible.builtin.command: restorecon -R -v /var/www/html/{{ cluster_name | default('uatapp') }}
+      register: restorecon_res
+      failed_when: false
+      changed_when: restorecon_res.rc == 0
+
+  handlers:
+    - name: restart httpd
+      ansible.builtin.service:
+        name: httpd
+        state: restarted
+
+    - name: install-config created
+      ansible.builtin.debug:
+        msg: "install-config.yaml created/updated"
+
