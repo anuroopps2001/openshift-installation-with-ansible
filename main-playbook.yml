@@ -1,0 +1,79 @@
+--- 
+- name: Bastion node prepation for Openshift installation
+  hosts: bastion.lab.example.com
+  become: true
+  remote_user: core
+  tasks:
+    # Creating ssh keys
+    - name: Generate ssh keys on bastion server
+	  ansible.builtin.openssh_keypair:
+	    path: /home/core/.ssh/id_rsa
+		owner: core
+		group: core
+		type: rsa
+		size: 4096
+		state: present
+		
+	- name: Preparing install config yaml
+          ansible.builtin.template: templates/install-config.yaml.j2
+            src: templates/install-config.yaml.j2
+            dest: /home/core/ocp-install/install-config.yaml
+            owner: core
+            group: core
+            mode: '0644'
+          vars:
+            cluster_base_domain: rbi1.rbi.org.in
+            arch: s390x
+            master_replica_count: 3
+            cluster_name: uatapp
+            cluster_pod_network_range: 100.132.0.0/14
+            cluster_service_network_range: 100.137.0.0/16
+            fips_mode: true
+            pull_secret: {"auths":{"cloud.openshift.com":{"auth":"b3jJDSUVXQkNBUzBPVDVETEg4NExEWkE2RTdKT0pGTzE2TE5PUEpPV0ZSVTY2RQ=="},"dmz-quay.ek3np.rbi1.rbi.org.in:8443":{"auth":"aW5pdDMjM="},"quay.io":{"auth":"b3BlEpPV0ZSVTY2RQ=="},"registry.connect.redhat.com":{"auth":"fHVoWdrUQ=="},"registry.redhat.io":{"auth":"fH3RmSWdrUQ=="}}}
+            ssh_public_key: ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAACAQC0FBYQvgB0pGgfUZaof4LWm2aEMehwdhPmLemVw1EC0grvWqUjQ== core@mz-bastion.ek3uatapp1.rbi1.rbi.org.in
+
+        - name: Generate manifest files
+          ansible.builtin.command:
+            cmd:  openshift-install-fips create manifests --dir ocpinstall-dec19
+            chdir: /home/core
+         
+        - name: Make masters unschedulable in scheduler manifest
+          ansible.builtin.replace:
+            path: /home/core/ocpinstall-dec19/manifests/cluster-scheduler-02-config.yml
+            regexp: 'mastersSchedulable:\s*true'
+            replace: 'masterSchedulable: false'
+
+        - name: Create the Ignition config files
+          ansible.builtin.command:
+            cmd: openshift-install-fipss create ignition-configs --dir ocpinstall-dec19
+            chdir: /home/core
+
+        - name: Install httpd package
+          ansible.builtin.dnf:
+            name: httpd
+            state: latest
+
+        - name: Start and enable httpd service
+          ansible.builtin.service:
+            name: httpd
+            enabled: true
+            state: started
+        
+        - name: make sure firewall is turned off
+          ansible.builtin.service:
+            name: firewalld
+            state: stopped
+
+        - name: create ignition files dir at /var/www/html
+          ansible.builtin.file:
+            path: /var/www/html/uatapp
+            state: directory
+            mode: '0777'
+            owner: root
+            group: root
+
+        - name: copy ignition files in uatapp dir
+          ansible.builtin.copy:
+            src: /home/core/ocp416/auth/*.ign
+            dest: /var/www/html/uatapp/
+           
