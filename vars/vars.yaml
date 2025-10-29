@@ -1,0 +1,10 @@
+cluster_base_domain: rbi1.rbi.org.in
+arch: s390x
+master_replica_count: 3
+cluster_name: uatapp
+cluster_pod_network_range: 100.132.0.0/14
+cluster_service_network_range: 100.137.0.0/16
+fips_mode: true
+pull_secret_file: /home/core/pull-secret.json
+ssh_pub_key_file: /home/core/.ssh/id_rsa.pub
+disable_firewall: true

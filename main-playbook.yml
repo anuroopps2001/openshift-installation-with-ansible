@@ -5,7 +5,7 @@
   remote_user: core
 
   vars_files:
-    - ../vars/cluster-vars.yml     # put sensitive values (pull_secret path, etc.) here
+    - vars/cluster-vars.yml     # put sensitive values (pull_secret path, etc.) here
 
   tasks:
     - name: Ensure install dir exists
