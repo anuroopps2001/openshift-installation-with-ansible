@@ -29,8 +29,8 @@
             cluster_pod_network_range: 100.132.0.0/14
             cluster_service_network_range: 100.137.0.0/16
             fips_mode: true
-            pull_secret: {"auths":{"cloud.openshift.com":{"auth":"b3jJDSUVXQkNBUzBPVDVETEg4NExEWkE2RTdKT0pGTzE2TE5PUEpPV0ZSVTY2RQ=="},"dmz-quay.ek3np.rbi1.rbi.org.in:8443":{"auth":"aW5pdDMjM="},"quay.io":{"auth":"b3BlEpPV0ZSVTY2RQ=="},"registry.connect.redhat.com":{"auth":"fHVoWdrUQ=="},"registry.redhat.io":{"auth":"fH3RmSWdrUQ=="}}}
-            ssh_public_key: ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAACAQC0FBYQvgB0pGgfUZaof4LWm2aEMehwdhPmLemVw1EC0grvWqUjQ== core@mz-bastion.ek3uatapp1.rbi1.rbi.org.in
+            pull_secret: {"auths":{"cloud.openshift.com":{"auth":"b3jJDSUVXQkNBUzBPVDVETEg4NExEWkE2RTdKT0pGTzE2TE5PUEpPV0ZSVTY2RQ=="},"yyy.org.in:8443":{"auth":"aW5pdDMjM="},"quay.io":{"auth":"b3BlEpPV0ZSVTY2RQ=="},"registry.connect.redhat.com":{"auth":"fHVoWdrUQ=="},"registry.redhat.io":{"auth":"fH3RmSWdrUQ=="}}}
+            ssh_public_key: ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAACAQC0FBYQvgB0pGgfUZaof4LWm2aEMehwdhPmLemVw1EC0grvWqUjQ== core@yyy.org.in
 
         - name: Generate manifest files
           ansible.builtin.command:
